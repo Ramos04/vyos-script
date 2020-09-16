@@ -3,7 +3,7 @@
 # HEADER
 #================================================================
 #% SYNOPSIS
-#+    ${SCRIPT_NAME} [-hv] [-o[file]] args ...
+#+    ${SCRIPT_NAME} [-hvfsn] [-a] [-o[file]] 
 #%
 #% DESCRIPTION
 #%    static_ip is used for setting up a static ip mapping, nat rules, 
@@ -13,31 +13,23 @@
 #%
 #%
 #% OPTIONS
-#%    -h, --help                    Print this help
-#%    -V, --version                 Print script information
-#%    -d, --debug                   Print all commands to screen
+#%    -h, --help                    print this help
+#%    -V, --version                 print script information
+#%    -D, --debug                   print all debug info to screen
 #%    -h, --help                    show this help page
 #%
-#%   Global 
-#%    -a, --ip-address              internal host ip address
-#%    -m, --mac-address             internal host mac address
-#%    -r, --rule-num                rule number
-#%        --rule-desc               rule description
-#%    -d, --dest-port               incoming port on the firewall
-#%    -t, --tran-port               internal host port to route to 
-#%    -p, --protocol                protocol used by the traffic
-#%  
-#%   Firewall 
-#%    -i, --interface               interface on the firewall
-#%    -f, --firewall                firwall name
+#%    -a, --all                     run all modules 
+#%    -f, --firewall                run firewall module
+#%    -s, --static-map              run the dhcp static mapping module
+#%    -n, --nat-translation         run the nat translation module
 #%
-#%   DHCP Static Leasing 
-#%        --net-name                dchp network name
-#%        --sub-name                dhcp subnet address (eg. 192.168.0.0/24)
-#%        --map-name                dhcp mapping name
+#%    -d, --dry-run                 instead of running it prints all commands
+#%    -o, --output                  write rules to output file
 #%
 #% EXAMPLES
-#%    ${SCRIPT_NAME} -h -v -d
+#%    ${SCRIPT_NAME} -a --dry-run
+#%    ${SCRIPT_NAME} -fsno ./vyos_commands
+#%    ${SCRIPT_NAME} -fsn
 #%
 #================================================================
 #- IMPLEMENTATION
@@ -74,6 +66,18 @@ readonly SCRIPT_HOSTNAME="$(hostname)"                      # Hostname
 readonly SCRIPT_COMMAND_FULL="${0} $*"                      # Full command
 readonly SCRIPT_EXEC_ID=${$}                                # Exec ID
 readonly SCRIPT_HEADSIZE=$(grep -sn "^# END_OF_HEADER" ${0} | head -1 | cut -f1 -d:)
+
+  #╔═══════════════════╗
+  #║    MODULE VARS    ║
+  #╚═══════════════════╝
+MOD_DBG=1
+MOD_OUT=0
+MOD_DRY=1
+MOD_FW=1
+MOD_STAT=1
+MOD_NAT=1
+
+FILE_OUT="./vyos_commands"
 
   #╔═══════════════════╗
   #║     RULE VARS     ║
@@ -122,95 +126,185 @@ FW_NAME=""              # firewall name
 
 #= DESC: Displays script information
 # called like usage ful
-usage () { headFilter="^#-";
-    if [[ ! -z "$1" ]];then
-        [[ "$1" = "usg" ]] && headFilter="^#+"
-        [[ "$1" = "ful" ]] && headFilter="^#[%+]"
-        [[ "$1" = "ver" ]] && headFilter="^#-"
-    fi
-    head -${SCRIPT_HEADSIZE:-99} ${0} | grep -e "${headFilter}" | \
-        sed -e "s/${headFilter}//g" -e "s/\${SCRIPT_NAME}/${SCRIPT_NAME}/g";
-}
 
-script_man () {
+function script_man {
     headFilter="^#[%+]"
     head -${SCRIPT_HEADSIZE:-99} ${0} | grep -e "${headFilter}" | \
         sed -e "s/${headFilter}//g" -e "s/\${SCRIPT_NAME}/${SCRIPT_NAME}/g";
-
 }
 
-script_usage () {
+function script_usage {
     headFilter="^#+"
     head -${SCRIPT_HEADSIZE:-99} ${0} | grep -e "${headFilter}" | \
         sed -e "s/${headFilter}//g" -e "s/\${SCRIPT_NAME}/${SCRIPT_NAME}/g";
 }
 
-script_version () {
+function script_version () {
     headFilter="^#-"
     head -${SCRIPT_HEADSIZE:-99} ${0} | grep -e "${headFilter}" | \
         sed -e "s/${headFilter}//g" -e "s/\${SCRIPT_NAME}/${SCRIPT_NAME}/g";
 }
 
 
-function show_help {
-     echo -e "
-NAME
-       static_ip - easy vyos static ip setup
-
-SYNOPSIS
-       static_ip 
-
-DESCRIPTION
-       static_ip is used for setting up a static ip mapping, nat rules, 
-       and firewall rules. You need to specify the following items
-
-Options
-  -h, --help                  show this help page
-  -a, --ip-address            internal host ip address
-  -m, --mac-address           internal host mac address
-  -r, --rule-num              rule number
-      --rule-desc             rule description
-  -d, --dest-port             incoming port on the firewall
-  -t, --tran-port             internal host port to route to 
-  -p, --protocol              protocol used by the traffic
-  -i, --interface             interface on the firewall
-  -f, --firewall              firwall name
-      --net-name              dchp network name
-      --sub-name              dhcp subnet address (eg. 192.168.0.0/24)
-      --map-name              dhcp mapping name
-  "
-  exit
+function module_print_flags {
+     echo MODULE FLAGS
+     echo ======================
+     echo MOD_DBG  : $MOD_DBG
+     echo MOD_DRY  : $MOD_DRY
+     echo MOD_FW   : $MOD_FW
+     echo MOD_STAT : $MOD_STAT
+     echo MOD_NAT  : $MOD_NAT
 }
 
-function show_commands {
-     echo -e"
-╔═════════════════════════════════════════════════════════════════════════════╗
-║                                ARGUMENTS                                    ║
-╚═════════════════════════════════════════════════════════════════════════════╝
+  #╔══════════════════╗
+  #║    STATIC MAP    ║
+  #╚══════════════════╝
+function map_read_args {
+     if [ -z "$STATMAP_NET_NAME" ]; then 
+          read -p "Network Name : " STATMAP_NET_NAME
+     fi
 
-DHCP SERVER
-═══════════
-set service dhcp-server shared-network-name '$STATMAP_NET_NAME' subnet '$STATMAP_SUB_NAME' static-mapping '$STATMAP_SUB_NAME' ip-address '$ADDR_IP'
-set service dhcp-server shared-network-name '$STATMAP_NET_NAME' subnet '$STATMAP_SUB_NAME' static-mapping '$STATMAP_SUB_NAME' mac-address '$ADDR_MAC'
+     if [ -z "$STATMAP_SUB_NAME" ]; then 
+          read -p "Subnet Name  : " STATMAP_SUB_NAME
+     fi
 
-NAT RULES
-═══════════
-set nat destination rule $RULE_NUM description '$RULE_DESC'
-set nat destination rule $RULE_NUM destination port '$PORT_DEST'
-set nat destination rule $RULE_NUM inbound-interface '$NAT_IFACE'
-set nat destination rule $RULE_NUM protocol '$PROTOCOL'
-set nat destination rule $RULE_NUM translation address '$ADDR_IP'
-set nat destination rule $RULE_NUM destination port '$PORT_TRANS'
+     if [ -z "$STATMAP_MAP_NAME" ]; then 
+          read -p "Mapping Name : " STATMAP_MAP_NAME
+     fi
 
-FIREWALL 
-═══════════
-set firewall name $FW_NAME rule $RULE_NUM action 'accept'
-set firewall name $FW_NAME rule $RULE_NUM destination address '$ADDR_IP'
-set firewall name $FW_NAME rule $RULE_NUM destination port '$PORT_TRANS'
-set firewall name $FW_NAME rule $RULE_NUM protocol '$PROTOCOL'
-set firewall name $FW_NAME rule $RULE_NUM state new 'enable'
-"
+     if [ -z "$ADDR_IP" ]; then 
+          read -p "Mapping IP   : " ADDR_IP
+     fi
+
+     if [ -z "$ADDR_MAC" ]; then 
+          read -p "Mapping MAC  : " ADDR_MAC
+     fi
 }
+
+function map_out_file {
+     echo "set service dhcp-server shared-network-name '$STATMAP_NET_NAME' subnet '$STATMAP_SUB_NAME' static-mapping '$STATMAP_MAP_NAME' ip-address '$ADDR_IP'" >> $FILE_OUT
+     echo "set service dhcp-server shared-network-name '$STATMAP_NET_NAME' subnet '$STATMAP_SUB_NAME' static-mapping '$STATMAP_MAP_NAME' mac-address '$ADDR_MAC'" >> $FILE_OUT
+}
+
+function map_out_print {
+     echo "set service dhcp-server shared-network-name '$STATMAP_NET_NAME' subnet '$STATMAP_SUB_NAME' static-mapping '$STATMAP_MAP_NAME' ip-address '$ADDR_IP'"
+     echo "set service dhcp-server shared-network-name '$STATMAP_NET_NAME' subnet '$STATMAP_SUB_NAME' static-mapping '$STATMAP_MAP_NAME' mac-address '$ADDR_MAC'"
+}
+
+function module_map {
+     map_read_args
+
+     if [[ $MOD_DRY == 0 ]]; then 
+          map_out_print
+     elif [[ $MOD_OUT == 0 ]]; then 
+          map_out_file
+     fi
+}
+
+  #╔══════════════════╗
+  #║  NAT TRANSLATION ║
+  #╚══════════════════╝
+function nat_read_args {
+     if [ -z "$RULE_NUM" ]; then 
+          read -p "Rule Number       : " RULE_NUM
+     fi
+
+     if [ -z "$RULE_DESC" ]; then 
+          read -p "Rule Description  : " RULE_DESC
+     fi
+
+     if [ -z "$PORT_DEST" ]; then 
+          read -p "Destination Port  : " PORT_DEST
+     fi
+
+     if [ -z "$PORT_TRANS" ]; then 
+          read -p "Translation Port  : " PORT_TRANS
+     fi
+
+     if [ -z "$NAT_IFACE" ]; then 
+          read -p "Network Interface : " NAT_IFACE
+     fi
+
+     if [ -z "$PROTOCOL" ]; then 
+          read -p "Network Protocol  : " PROTOCOL
+     fi
+}
+
+function nat_out_file {
+     echo "set nat destination rule $RULE_NUM description '$RULE_DESC'" >> $FILE_OUT
+     echo "set nat destination rule $RULE_NUM destination port '$PORT_DEST'" >> $FILE_OUT
+     echo "set nat destination rule $RULE_NUM inbound-interface '$NAT_IFACE'" >>$FILE_OUT
+     echo "set nat destination rule $RULE_NUM protocol '$PROTOCOL'" >> $FILE_OUT
+     echo "set nat destination rule $RULE_NUM translation address '$ADDR_IP'" >> $FILE_OUT
+     echo "set nat destination rule $RULE_NUM destination port '$PORT_TRANS'" >>$FILE_OUT
+}
+
+function nat_out_print {
+     echo "set nat destination rule $RULE_NUM description '$RULE_DESC'" 
+     echo "set nat destination rule $RULE_NUM destination port '$PORT_DEST'" 
+     echo "set nat destination rule $RULE_NUM inbound-interface '$NAT_IFACE'" 
+     echo "set nat destination rule $RULE_NUM protocol '$PROTOCOL'" 
+     echo "set nat destination rule $RULE_NUM translation address '$ADDR_IP'" 
+     echo "set nat destination rule $RULE_NUM destination port '$PORT_TRANS'"
+}
+
+function module_nat {
+     nat_read_args
+
+     if [[ $MOD_DRY == 0 ]]; then 
+          nat_out_print
+     elif [[ $MOD_OUT == 0 ]]; then 
+          nat_out_file
+     fi
+}
+
+  #╔══════════════════╗
+  #║     FIREWALL     ║
+  #╚══════════════════╝
+function fw_read_args {
+     if [ -z "$FW_NAME" ]; then 
+          read -p "Firewall Name    : " FW_NAME
+     fi
+
+     if [ -z "$RULE_NUM" ]; then 
+          read -p "Rule Number       : " RULE_NUM
+     fi
+
+     if [ -z "$PORT_TRANS" ]; then 
+          read -p "Translation Port  : " PORT_TRANS
+     fi
+
+     if [ -z "$PROTOCOL" ]; then 
+          read -p "Network Protocol  : " PROTOCOL
+     fi
+}
+
+function fw_out_file {
+echo "set firewall name $FW_NAME rule $RULE_NUM action 'accept'" >> $FILE_OUT
+echo "set firewall name $FW_NAME rule $RULE_NUM destination address '$ADDR_IP'" >> $FILE_OUT
+echo "set firewall name $FW_NAME rule $RULE_NUM destination port '$PORT_TRANS'" >> $FILE_OUT
+echo "set firewall name $FW_NAME rule $RULE_NUM protocol '$PROTOCOL'" >> $FILE_OUT
+echo "set firewall name $FW_NAME rule $RULE_NUM state new 'enable'" >> $FILE_OUT
+}
+
+function fw_out_print {
+echo "set firewall name $FW_NAME rule $RULE_NUM action 'accept'" 
+echo "set firewall name $FW_NAME rule $RULE_NUM destination address '$ADDR_IP'" 
+echo "set firewall name $FW_NAME rule $RULE_NUM destination port '$PORT_TRANS'" 
+echo "set firewall name $FW_NAME rule $RULE_NUM protocol '$PROTOCOL'" 
+echo "set firewall name $FW_NAME rule $RULE_NUM state new 'enable'" 
+}
+
+function module_fw {
+     fw_read_args
+
+     if [[ $MOD_DRY == 0 ]]; then 
+          fw_out_print
+     elif [[ $MOD_OUT == 0 ]]; then 
+          fw_out_file
+     fi
+}
+
 
 #╔═════════════════════════════════════════════════════════════════════════════╗
 #║                         VYATTA CFG GROUP CHECK                              ║
@@ -242,76 +336,90 @@ if [ $# -eq 0 ]; then
     exit
 fi
 
+#= Options for the flags
+OPT_OPTS=":adDfhsnoV-:"
 
-for arg in "$@"
-do
-    case $arg in
-        -h|--help)
-          #show_help
-          script_man
-          exit 0
+while getopts "$OPT_OPTS" OPTION; do
+    case "${OPTION}" in
+        -)
+            case "${OPTARG}" in
+                help ) script_man; exit 0;
+                ;;
+                version ) script_version; exit 0;
+                ;;
+                verbose )  FLAG_VERBOSE=true;
+                ;;
+                debug) MOD_DBG=0; 
+                ;;
+                dry-run) MOD_DRY=0;
+                ;;
+                all) MOD_FW=0; MOD_STAT=0; MOD_NAT=0;
+                ;;
+                firewall) MOD_FW=0;
+                ;;
+                static-map) MOD_STAT=0;
+                ;;
+                nat-translation) MOD_NAT=0;
+                ;;
+                output ) MOD_OUT=0;
+                ;;
+                *)  error "${SCRIPT_NAME}: -$OPTARG: option requires an argument"
+                    OPT_ERR=1
+                ;;
+            esac
         ;;
-        -v|--version)
-          #show_help
-          script_version
-          exit 0
+        h ) script_man; exit 0;
         ;;
-        -a|--ip-address)
-          ADDR_IP="$2"
-          shift # Remove argument value from processing
+        V ) script_version; exit 0;
         ;;
-        -m|--mac-address)
-          ADDR_MAC="$2"
-          shift # Remove argument value from processing
+        D ) MOD_DBG=0; 
         ;;
-        -r|--rule-num)
-          RULE_NUM="$2"
-          shift # Remove argument value from processing
+        d ) MOD_DRY=0; 
         ;;
-        --rule-desc)
-          RULE_DESC="$2"
-          shift # Remove argument value from processing
+        a ) MOD_FW=0; MOD_STAT=0; MOD_NAT=0;
         ;;
-        -d|--dest-port)
-          PORT_DEST="$2"
-          shift # Remove argument value from processing
+        d ) MOD_DRY=0;
         ;;
-        -t|--tran-port)
-          PORT_TRANS="$2"
-          shift # Remove argument value from processing
+        f ) MOD_FW=0;
         ;;
-        -p|--protocol)
-          PROTOCOL="$2"
-          shift # Remove argument value from processing
+        s ) MOD_STAT=0;
         ;;
-        -i|--interface)
-          NAT_IFACE="$2"
-          shift # Remove argument value from processing
+        n ) MOD_NAT=0;
         ;;
-        -f|--firewall)
-          FW_NAME="$2"
-          shift # Remove argument value from processing
+        o ) MOD_OUT=0; FILE_OUT=$2;
         ;;
-        --net-name)
-          STATMAP_NET_NAME="$2"
-          shift # Remove argument value from processing
+        : ) echo "${SCRIPT_NAME}: -$OPTARG: option requires an argument"
+            OPT_ERR=1; exit 1;
         ;;
-        --sub-name)
-          STATMAP_SUB_NAME="$2"
-          shift # Remove argument value from processing
+        ? ) echo "${SCRIPT_NAME}: -$OPTARG: unknown option"
+            OPT_ERR=1; exit 1;
         ;;
-        --map-name)
-          STATMAP_MAP_NAME="$2"
-          shift # Remove argument value from processing
-        ;;
-        *)
-          OTHER_ARGUMENTS+=("$1")
-        shift # Remove generic argument from processing
+        *)  echo "${SCRIPT_NAME}: -$OPTARG: option requires an argument"
+            OPT_ERR=1; exit 1;
         ;;
     esac
 done
+shift $((${OPTIND} - 1)) ## shift options
 
-show_commands
+
+if [[ $MOD_DBG == 0 ]]; then 
+     module_print_flags
+fi
+
+# static mapping module
+if [[ $MOD_STAT == 0 ]]; then 
+     module_map
+fi
+
+# nat module
+if [[ $MOD_NAT == 0 ]]; then 
+     module_nat
+fi
+
+# firewall module
+if [[ $MOD_FW == 0 ]]; then 
+     module_fw
+fi
 
 exit
 
