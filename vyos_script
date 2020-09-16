@@ -1,0 +1,212 @@
+#!/bin/bash
+
+
+#╔═════════════════════════════════════════════════════════════════════════════╗
+#║                               GLOBAL VARS                                   ║
+#╚═════════════════════════════════════════════════════════════════════════════╝
+
+  #╔═══════════════════╗
+  #║     RULE VARS     ║
+  #╚═══════════════════╝
+RULE_NUM=""             # rule number to be used for nat and fw
+RULE_DESC=""            # rule description
+
+  #╔═══════════════════╗
+  #║     ADDR VARS     ║
+  #╚═══════════════════╝
+ADDR_IP=""              # internal host ip address
+ADDR_MAC=""             # internal host mac address
+
+  #╔══════════════════╗
+  #║    PORT VARS     ║
+  #╚══════════════════╝
+PORT_DEST=""            # port that traffic is entering fw from
+PORT_TRANS=""           # port that is used to send to internal host
+
+  #╔═══════════════════╗
+  #║    PROTO VARS     ║
+  #╚═══════════════════╝
+PROTOCOL=""             # protocol 
+
+
+  #╔═══════════════════╗
+  #║   STATIC VARS     ║
+  #╚═══════════════════╝
+STATMAP_NET_NAME=""     # static mapping network name
+STATMAP_SUB_NAME=""   # static mapping network subnet
+STATMAP_MAP_NAME=""     # static mapping name
+
+  #╔══════════════════╗
+  #║     NAT VARS     ║
+  #╚══════════════════╝
+NAT_IFACE=""            # nat interface
+
+  #╔══════════════════╗
+  #║     FW VARS      ║
+  #╚══════════════════╝
+FW_NAME=""              # firewall name 
+
+#╔═════════════════════════════════════════════════════════════════════════════╗
+#║                                FUNCTIONS                                    ║
+#╚═════════════════════════════════════════════════════════════════════════════╝
+function show_help {
+     echo -e "
+NAME
+       static_ip - easy vyos static ip setup
+
+SYNOPSIS
+       static_ip 
+
+DESCRIPTION
+       static_ip is used for setting up a static ip mapping, nat rules, 
+       and firewall rules. You need to specify the following items
+
+Options
+  -h, --help                  show this help page
+  -a, --ip-address            internal host ip address
+  -m, --mac-address           internal host mac address
+  -r, --rule-num              rule number
+      --rule-desc             rule description
+  -d, --dest-port             incoming port on the firewall
+  -t, --tran-port             internal host port to route to 
+  -p, --protocol              protocol used by the traffic
+  -i, --interface             interface on the firewall
+  -f, --firewall              firwall name
+      --net-name              dchp network name
+      --sub-name              dhcp subnet address (eg. 192.168.0.0/24)
+      --map-name              dhcp mapping name
+  "
+  exit
+}
+
+function show_commands {
+     echo -e"
+╔═════════════════════════════════════════════════════════════════════════════╗
+║                                ARGUMENTS                                    ║
+╚═════════════════════════════════════════════════════════════════════════════╝
+
+DHCP SERVER
+═══════════
+set service dhcp-server shared-network-name '$STATMAP_NET_NAME' subnet '$STATMAP_SUB_NAME' static-mapping '$STATMAP_SUB_NAME' ip-address '$ADDR_IP'
+set service dhcp-server shared-network-name '$STATMAP_NET_NAME' subnet '$STATMAP_SUB_NAME' static-mapping '$STATMAP_SUB_NAME' mac-address '$ADDR_MAC'
+
+NAT RULES
+═══════════
+set nat destination rule $RULE_NUM description '$RULE_DESC'
+set nat destination rule $RULE_NUM destination port '$PORT_DEST'
+set nat destination rule $RULE_NUM inbound-interface '$NAT_IFACE'
+set nat destination rule $RULE_NUM protocol '$PROTOCOL'
+set nat destination rule $RULE_NUM translation address '$ADDR_IP'
+set nat destination rule $RULE_NUM destination port '$PORT_TRANS'
+
+FIREWALL 
+═══════════
+set firewall name $FW_NAME rule $RULE_NUM action 'accept'
+set firewall name $FW_NAME rule $RULE_NUM destination address '$ADDR_IP'
+set firewall name $FW_NAME rule $RULE_NUM destination port '$PORT_TRANS'
+set firewall name $FW_NAME rule $RULE_NUM protocol '$PROTOCOL'
+set firewall name $FW_NAME rule $RULE_NUM state new 'enable'
+"
+}
+
+#╔═════════════════════════════════════════════════════════════════════════════╗
+#║                         VYATTA CFG GROUP CHECK                              ║
+#╚═════════════════════════════════════════════════════════════════════════════╝
+# There is a pitfall when working with configuration scripts. It is tempting to 
+# call configuration scripts with “sudo” (i.e., temporary root permissions), 
+# because that’s the common way on most Linux platforms to call system commands.
+
+# On VyOS this will cause the following problem: After modifying the 
+# configuration via script like this once, it is not possible to manually modify 
+# the config anymore:
+
+# This will result in the following error message: Set failed If this happens, 
+# a reboot is required to be able to edit the config manually again.
+
+# To avoid these problems, the proper way is to call a script with the vyattacfg 
+# group, e.g., by using the sg (switch group) command:
+
+#if [ "$(id -g -n)" != 'vyattacfg' ] ; then
+#    exec sg vyattacfg -c "/bin/vbash $(readlink -f $0) $@"
+#fi
+
+#╔═════════════════════════════════════════════════════════════════════════════╗
+#║                               PARSE ARGS                                    ║
+#╚═════════════════════════════════════════════════════════════════════════════╝
+# Check if args are empty
+if [ $# -eq 0 ]; then
+     show_help
+fi
+
+
+for arg in "$@"
+do
+    case $arg in
+        -h|--help)
+          show_help
+        ;;
+        -a|--ip-address)
+          ADDR_IP="$2"
+          shift # Remove argument value from processing
+        ;;
+        -m|--mac-address)
+          ADDR_MAC="$2"
+          shift # Remove argument value from processing
+        ;;
+        -r|--rule-num)
+          RULE_NUM="$2"
+          shift # Remove argument value from processing
+        ;;
+        --rule-desc)
+          RULE_DESC="$2"
+          shift # Remove argument value from processing
+        ;;
+        -d|--dest-port)
+          PORT_DEST="$2"
+          shift # Remove argument value from processing
+        ;;
+        -t|--tran-port)
+          PORT_TRANS="$2"
+          shift # Remove argument value from processing
+        ;;
+        -p|--protocol)
+          PROTOCOL="$2"
+          shift # Remove argument value from processing
+        ;;
+        -i|--interface)
+          NAT_IFACE="$2"
+          shift # Remove argument value from processing
+        ;;
+        -f|--firewall)
+          FW_NAME="$2"
+          shift # Remove argument value from processing
+        ;;
+        --net-name)
+          STATMAP_NET_NAME="$2"
+          shift # Remove argument value from processing
+        ;;
+        --sub-name)
+          STATMAP_SUB_NAME="$2"
+          shift # Remove argument value from processing
+        ;;
+        --map-name)
+          STATMAP_MAP_NAME="$2"
+          shift # Remove argument value from processing
+        ;;
+        *)
+          OTHER_ARGUMENTS+=("$1")
+        shift # Remove generic argument from processing
+        ;;
+    esac
+done
+
+show_commands
+
+exit
+
+#source /opt/vyatta/etc/functions/script-template
+#configure
+
+
+
+
