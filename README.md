@@ -59,19 +59,24 @@ check your work before possibly totally fucking up your vyos box
 you'be been warned lol my bash skills may be a bit rusty
 
 ## Example Vyos Commands
-set service dhcp-server shared-network-name 'LAN' subnet '192.168.0.0/24' static-mapping 'SERVER' ip-address '192.168.0.10'
-set service dhcp-server shared-network-name 'LAN' subnet '192.168.0.0/24' static-mapping 'SERVER' mac-address '00:53:00:00:00:01'
 
-set nat destination rule 10 description 'Port Forward: HTTP to 192.168.0.100'
-set nat destination rule 10 destination port '8888'
-set nat destination rule 10 inbound-interface 'eth0'
-set nat destination rule 10 protocol 'tcp'
-set nat destination rule 10 translation address '192.168.0.100'
-set nat destination rule 10 translation port '22'
+### DHCP Static Mapping
 
-set firewall name OUTSIDE-IN rule 20 action 'accept'
-set firewall name OUTSIDE-IN rule 20 destination address '192.168.0.100'
-set firewall name OUTSIDE-IN rule 20 destination port '22'
-set firewall name OUTSIDE-IN rule 20 protocol 'tcp'
-set firewall name OUTSIDE-IN rule 20 state new 'enable'
+- set service dhcp-server shared-network-name 'LAN' subnet '192.168.0.0/24' static-mapping 'SERVER' ip-address '192.168.0.10'
+- set service dhcp-server shared-network-name 'LAN' subnet '192.168.0.0/24' static-mapping 'SERVER' mac-address '00:53:00:00:00:01'
+
+### NAT Destination 
+- set nat destination rule 10 description 'Port Forward: HTTP to 192.168.0.100'
+- set nat destination rule 10 destination port '8888'
+- set nat destination rule 10 inbound-interface 'eth0'
+- set nat destination rule 10 protocol 'tcp'
+- set nat destination rule 10 translation address '192.168.0.100'
+- set nat destination rule 10 translation port '22'
+
+### Firewall 
+- set firewall name OUTSIDE-IN rule 20 action 'accept'
+- set firewall name OUTSIDE-IN rule 20 destination address '192.168.0.100'
+- set firewall name OUTSIDE-IN rule 20 destination port '22'
+- set firewall name OUTSIDE-IN rule 20 protocol 'tcp'
+- set firewall name OUTSIDE-IN rule 20 state new 'enable'
 
