@@ -295,7 +295,7 @@ function nat_out_file {
      echo "set nat destination rule $RULE_NUM inbound-interface '$NAT_IFACE'" >>$FILE_OUT
      echo "set nat destination rule $RULE_NUM protocol '$PROTOCOL'" >> $FILE_OUT
      echo "set nat destination rule $RULE_NUM translation address '$ADDR_IP'" >> $FILE_OUT
-     echo "set nat destination rule $RULE_NUM destination port '$PORT_TRANS'" >>$FILE_OUT
+     echo "set nat destination rule $RULE_NUM translation port '$PORT_TRANS'" >> $FILE_OUT
 }
 
 function nat_out_print {
@@ -304,7 +304,7 @@ function nat_out_print {
      echo "set nat destination rule $RULE_NUM inbound-interface '$NAT_IFACE'" 
      echo "set nat destination rule $RULE_NUM protocol '$PROTOCOL'" 
      echo "set nat destination rule $RULE_NUM translation address '$ADDR_IP'" 
-     echo "set nat destination rule $RULE_NUM destination port '$PORT_TRANS'"
+     echo "set nat destination rule $RULE_NUM translation port '$PORT_TRANS'" 
 }
 
 function module_nat {
